@@ -2180,8 +2180,8 @@
     </style>
 </head>
 <body>
-    <!-- Login Required Screen (shown when not authenticated) -->
-    <div id="login-screen" class="login-screen">
+    <!-- Login Required Screen (hidden by default, shown only if private repo access fails or manual login requested) -->
+    <div id="login-screen" class="login-screen" style="display: none;">
         <div class="login-container">
             <div class="login-logo">🎯</div>
             <h1 class="login-title">Mission Control</h1>
@@ -2233,12 +2233,18 @@
                 </div>
 
                 <p class="login-security">🔒 Your token is stored locally and never sent anywhere except GitHub.</p>
+                
+                <div style="margin-top: 1rem; text-align: center;">
+                    <button class="btn btn-secondary btn-small" onclick="enableDemoMode()">
+                        View Read-Only Mode
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Main Dashboard (hidden until authenticated) -->
-    <div id="dashboard" class="dashboard" style="display: none;">
+    <!-- Main Dashboard (visible by default for public repos) -->
+    <div id="dashboard" class="dashboard">
 
     <header class="header">
         <div class="header-left">
@@ -3096,25 +3102,73 @@
             // Logic to move task card
         }
         
-        // Initialize with fallback data if needed
-        function checkAuth() {
+        // Initialize
+        async function checkAuth() {
             const token = localStorage.getItem('mc_token');
             if (token) {
+                // We have a token, try to validate and load
+                STATE.token = token;
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('dashboard').style.display = 'block';
-                // Load real data logic...
-            } else {
-                // Show demo or login
-                // For this static file, we show the dashboard with demo banner
-                // In a real app, we might force login
+                document.getElementById('user-profile').style.display = 'flex';
+                document.getElementById('btn-connect').style.display = 'none';
                 
-                // DEMO MODE for static preview:
-                // document.getElementById('login-screen').style.display = 'none';
-                // document.getElementById('dashboard').style.display = 'block';
-                // renderTasks(FALLBACK_DATA.tasks);
+                // Validate user
+                try {
+                    const user = await fetchUser(token);
+                    STATE.user = user;
+                    document.getElementById('user-avatar').src = user.avatar_url;
+                    document.getElementById('user-name').innerText = user.login;
+                } catch (e) {
+                    console.error("Token invalid:", e);
+                    // Token might be expired, but let's try to load data anyway
+                }
+                
+                loadData();
+            } else {
+                // No token found. Try to load public data first.
+                // If it works, show dashboard in Read-Only mode.
+                // If it fails (private repo), show login screen.
+                
+                try {
+                    console.log("No token. Attempting public read...");
+                    const response = await fetch(CONFIG.tasksFile + '?t=' + Date.now());
+                    if (response.ok) {
+                        const data = await response.json();
+                        STATE.data = data;
+                        STATE.originalData = JSON.parse(JSON.stringify(data));
+                        
+                        // Show dashboard in Read-Only mode
+                        document.getElementById('login-screen').style.display = 'none';
+                        document.getElementById('dashboard').style.display = 'block';
+                        document.getElementById('user-profile').style.display = 'none';
+                        document.getElementById('btn-connect').style.display = 'inline-flex';
+                        
+                        renderTasks(STATE.data.tasks);
+                        updateStats();
+                        updateActivityLog(); // If you have logic for this
+                        
+                        showToast('Viewing in Read-Only Mode', 'info');
+                    } else {
+                        throw new Error("Public read failed");
+                    }
+                } catch (e) {
+                    console.log("Public read failed, requiring login.");
+                    document.getElementById('login-screen').style.display = 'flex';
+                    document.getElementById('dashboard').style.display = 'none';
+                }
             }
         }
         
+        function enableDemoMode() {
+            // Force load fallback data if public read failed
+             document.getElementById('login-screen').style.display = 'none';
+             document.getElementById('dashboard').style.display = 'block';
+             renderTasks(FALLBACK_DATA.tasks);
+             STATE.data = FALLBACK_DATA;
+             showToast('Viewing Demo Data', 'info');
+        }
+
         // Check auth on page load
         checkAuth();
     </script>
